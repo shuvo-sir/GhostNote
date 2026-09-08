@@ -20,6 +20,16 @@ const noteSchema = new mongoose.Schema({
   expiresAt: { 
     type: Date, 
     required: true 
+  },
+  // 👇 NEW: Track who dropped it
+  deviceId: { 
+    type: String, 
+    required: true 
+  },
+  // 👇 NEW: Track how many times it was opened
+  views: { 
+    type: Number, 
+    default: 0 
   }
 });
 

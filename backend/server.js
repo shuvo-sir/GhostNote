@@ -18,10 +18,10 @@ mongoose.connect(MONGO_URI)
 
 // --- API ROUTES ---
 
-// 1. Drop a new Ghost Note
+// 1. Drop a new Ghost Note (UPDATED to accept deviceId)
 app.post('/api/notes', async (req, res) => {
   try {
-    const { latitude, longitude, text } = req.body;
+    const { latitude, longitude, text, deviceId } = req.body;
     
     // Set expiration 24 hours from now
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -32,7 +32,8 @@ app.post('/api/notes', async (req, res) => {
         type: 'Point',
         coordinates: [longitude, latitude] // GeoJSON format requires Longitude first
       },
-      expiresAt
+      expiresAt,
+      deviceId // <-- Added here
     });
 
     await newNote.save();
@@ -42,7 +43,7 @@ app.post('/api/notes', async (req, res) => {
   }
 });
 
-// 2. Get all active notes (We let the frontend handle the 50m lock logic)
+// 2. Get all active notes (UPDATED to return views and deviceId)
 app.get('/api/notes', async (req, res) => {
   try {
     // We only fetch notes that haven't expired yet
@@ -54,12 +55,51 @@ app.get('/api/notes', async (req, res) => {
       text: note.text,
       latitude: note.location.coordinates[1],
       longitude: note.location.coordinates[0],
-      expiresAt: note.expiresAt
+      expiresAt: note.expiresAt,
+      deviceId: note.deviceId, // <-- Added here
+      views: note.views        // <-- Added here
     }));
 
     res.status(200).json(formattedNotes);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch notes.' });
+  }
+});
+
+
+// 3. NEW: Increment the view count when someone opens a note
+app.post('/api/notes/:id/view', async (req, res) => {
+  try {
+    const note = await Note.findByIdAndUpdate(
+      req.params.id, 
+      { $inc: { views: 1 } },
+      { returnDocument: 'after' } // <-- We changed this line!
+    );
+    res.json(note);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update view count' });
+  }
+});
+
+// 4. NEW: Fetch ONLY the notes dropped by a specific user
+app.get('/api/notes/my-drops/:deviceId', async (req, res) => {
+  try {
+    const myNotes = await Note.find({ deviceId: req.params.deviceId }).sort({ expiresAt: -1 });
+    
+    // Format them exactly like the active notes route
+    const formattedNotes = myNotes.map(note => ({
+      id: note._id,
+      text: note.text,
+      latitude: note.location.coordinates[1],
+      longitude: note.location.coordinates[0],
+      expiresAt: note.expiresAt,
+      deviceId: note.deviceId,
+      views: note.views
+    }));
+
+    res.status(200).json(formattedNotes);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch your drops.' });
   }
 });
 
