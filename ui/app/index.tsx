@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, Modal, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-// 1. UPDATED IMPORT: Swapped PROVIDER_DEFAULT for PROVIDER_GOOGLE
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { getDistance } from 'geolib';
@@ -17,6 +16,7 @@ export default function MapUI() {
   const [isDropModalVisible, setIsDropModalVisible] = useState(false);
   const [newNoteText, setNewNoteText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [readNoteIds, setReadNoteIds] = useState<string[]>([]);
 
   // 1. Initialize GPS & Fetch Initial Notes
   useEffect(() => {
@@ -56,7 +56,8 @@ export default function MapUI() {
     }
   };
 
-  const handleMarkerPress = (note: GhostNote) => {
+  // 2. Handle tapping a note on the map
+const handleMarkerPress = (note: GhostNote) => {
     if (!userLocation) return;
 
     const distanceMeters = getDistance(
@@ -65,22 +66,45 @@ export default function MapUI() {
     );
 
     if (distanceMeters <= 50) {
-      setSelectedNote(note);
+      setSelectedNote(note); // Unlocked! Open the note.
+      
+      // GHOST EFFECT: Remember that we read this note!
+      const noteKey = note.id || (note as any)._id;
+      if (noteKey && !readNoteIds.includes(noteKey)) {
+        setReadNoteIds((prev) => [...prev, noteKey]);
+      }
     } else {
       Alert.alert('Out of Range 🔒', `You are ${distanceMeters}m away. Walk closer!`);
     }
   };
 
+  // 3. Handle dropping a new note
   const handleCreateDrop = async () => {
     if (!newNoteText.trim() || !userLocation) return;
 
     setIsSubmitting(true);
     try {
+      // Send it to the MongoDB database
       await dropGhostNote(userLocation.latitude, userLocation.longitude, newNoteText.trim());
+      
+      // OPTIMISTIC UPDATE: Instantly create a temporary note on the map so you see it right away
+      const instantNote: GhostNote = {
+        id: Math.random().toString(), // Temp ID until the server refresh catches up
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+        text: newNoteText.trim(),
+        expiresAt: new Date().toISOString()
+      };
+      
+      // Add it to the screen immediately
+      setActiveNotes((prevNotes) => [...prevNotes, instantNote]);
+
       setNewNoteText('');
       setIsDropModalVisible(false);
       Alert.alert('Dropped!', 'Your ghost note is pinned for 24 hours.');
-      loadNotes(); // Refresh map immediately
+      
+      // Fetch the real data from the server behind the scenes to sync up
+      loadNotes(); 
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
@@ -100,7 +124,6 @@ export default function MapUI() {
   return (
     <View style={styles.container}>
       <MapView
-        // 2. UPDATED PROVIDER: Tells React Native to use the Google Maps SDK
         provider={PROVIDER_GOOGLE} 
         mapType="hybrid" 
         style={styles.map}
@@ -113,6 +136,7 @@ export default function MapUI() {
         showsUserLocation
         followsUserLocation
       >
+        {/* Draw a 50-meter radius circle around the user */}
         <Circle
           center={{ latitude: userLocation.latitude, longitude: userLocation.longitude }}
           radius={50}
@@ -120,18 +144,28 @@ export default function MapUI() {
           fillColor="rgba(108, 92, 231, 0.2)"
         />
 
-        {activeNotes.map((note) => {
-          const distance = getDistance(userLocation, { latitude: note.latitude, longitude: note.longitude });
-          const isUnlocked = distance <= 50;
+        {/* Render all the active notes from the database */}
+        {activeNotes
+          // NEW: Filter out any notes we have already read!
+          .filter((note) => {
+            const noteKey = note.id || (note as any)._id;
+            return !readNoteIds.includes(noteKey);
+          })
+          .map((note, index) => {
+            if (!note.latitude || !note.longitude) return null;
 
-          return (
-            <Marker
-              key={note.id}
-              coordinate={{ latitude: note.latitude, longitude: note.longitude }}
-              onPress={() => handleMarkerPress(note)}
-              pinColor={isUnlocked ? '#00CEC9' : '#636E72'}
-            />
-          );
+            const distance = getDistance(userLocation, { latitude: note.latitude, longitude: note.longitude });
+            const isUnlocked = distance <= 50;
+            const noteKey = note.id || (note as any)._id || index.toString();
+
+            return (
+              <Marker
+                key={noteKey}
+                coordinate={{ latitude: note.latitude, longitude: note.longitude }}
+                onPress={() => handleMarkerPress(note)}
+                pinColor={isUnlocked ? '#00CEC9' : '#636E72'}
+              />
+            );
         })}
       </MapView>
 

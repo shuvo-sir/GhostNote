@@ -19,10 +19,17 @@
         "googleMaps": {
           "apiKey": "AIzaSyDREXVzlIJFL_bGGrZXoxP-A1E9WjJEeCs"
         }
-      }
+      },
+      "package": "com.shuvosir.GhostNote"
     },
     "plugins": [
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7cc83c15-f246-4568-b232-c2ea867697cc"
+      }
+    }
   }
 }
